@@ -43,5 +43,5 @@ vault-init.log
 pyvars_file.py
 
 # Ignoring Packer variable values
-**/*.pkvars.hcl
-**/*.pkvars.*
+**/*.pkrvars.hcl
+**/*.pkrvars.*
