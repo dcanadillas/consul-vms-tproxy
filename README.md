@@ -26,7 +26,7 @@ cd packer
 
 Create your variables file 
 ```
-cat - | tee consul_gcp.auto.pkvars.hcl <<EOF
+tee consul_gcp.auto.pkrvars.hcl <<EOF
 consul_version = "1.16.3+ent"
 image = "consul-ent"
 image_family = "custom-consul"
@@ -54,7 +54,7 @@ cd terraform
 
 Create the variable values file (replace your values):
 ```
-cat - | tee terraform.auth.tfvars <<EOF
+tee terraform.auto.tfvars <<EOF
 gcp_region = "europe-southwest1"
 gcp_zone = "europe-southwest1-c"
 gcp_project = "<gcp_project_id>"
@@ -87,7 +87,7 @@ eval $(terraform output -json gcp_clients | jq -r .[0])
 We create a `docker-compose` file to deploy the application in a docker container:
 
 ```
-tee docker-compose <<EOF
+tee docker-compose.yaml <<EOF
 version: "3.7"
 services:
 
@@ -114,6 +114,41 @@ docker-compose up -d
 Check the application is running:
 ```
 curl localhost:9094
+```
+
+Let's create a service to be registered in Consul:
+```
+tee fake-api.hcl <<EOF
+service {
+  name = "fake-api"
+  id = "fake-api"
+  tags = ["backend", "api"]
+  port = 9094
+
+
+  check {
+    id =  "check-fake-api",
+    name = "api status check",
+    service_id = "fake-api",
+    tcp  = "localhost:9094",
+    interval = "5s",
+    timeout = "5s"
+  }
+
+  connect {
+    sidecar_service {
+      proxy {
+        mode = "transparent"
+      }
+    }
+  }
+}
+EOF
+```
+
+And register the service:
+```
+consul services register fake-api.hcl -token Consul43v3r
 ```
 
 Now we will use the [`redirect-traffic` command](https://developer.hashicorp.com/consul/commands/connect/redirect-traffic) in Consul to automatically apply the `iptable` rules to enable the Transparent Proxy
@@ -150,11 +185,10 @@ eval $(terraform output -json gcp_clients | jq -r .[1])
 We will do the same thing in the second client node, but for a demo app called `web`.
 
 ```
-tee docker-compose <<EOF
+tee docker-compose.yaml <<EOF
 version: "3.7"
 services:
-
-  api:
+  web:
     image: nicholasjackson/fake-service:v0.7.8
     environment:
       LISTEN_ADDR: 0.0.0.0:9094
@@ -171,15 +205,85 @@ EOF
 docker-compose up -d
 ```
 
+Let's create a service to be registered in Consul:
+```
+tee fake-web.hcl <<EOF
+service {
+  name = "fake-web"
+  id = "fake-web"
+  tags = ["frontend", "web"]
+  port = 9094
+
+
+  check {
+    id =  "check-fake-web",
+    name = "web status check",
+    service_id = "fake-web",
+    tcp  = "localhost:9094",
+    interval = "5s",
+    timeout = "5s"
+  }
+
+  connect {
+    sidecar_service {
+      proxy {
+        mode = "transparent"
+      }
+    }
+  }
+}
+EOF
+```
+
+And register the service:
+```
+consul services register -token Consul43v3r fake-web.hcl 
+```
+
+
 ```
  sudo consul connect redirect-traffic -proxy-uid 1234 \
  -proxy-id fake-web-sidecar-proxy \
  -exclude-uid $(id --user consul) \
  -exclude-uid 0 \
  -exclude-uid $(id --user _apt) \
- -exclude-inbound-port 22
+ -exclude-inbound-port 22 \
+ -token Consul43v3r
 ```
 
 ```
-sudo nohup consul connect envoy -sidecar-for fake-web -token ConsulR0cks\! &
+sudo nohup consul connect envoy -sidecar-for fake-web -token Consul43v3r &
+```
+
+## Applying Consul intentions to check traffic
+
+We remain on the client node where the web application is running.
+
+Using Consul DNS, the `fake-api` service is discoverable:
+```
+host fake-api.service.consul
+
+host fake-api.virtual.consul
+```
+
+We can check that API service is not accessible:
+```
+curl fake-api.virtual.consul
+```
+
+That is because Consul has a `deny all` policy by default, so services cannot be reachable (because all traffic is going through the Envoy proxy)
+
+Let's then create the authorization `fake-web --> fake-api` by creating the corresponding Consul intention:
+```
+consul config write -token Consul43v3r - <<EOF
+Kind = "service-intentions"
+Name = "fake-api"
+Sources = [
+
+  {
+    Name   = "fake-web"
+    Action = "allow"
+  }
+]
+EOF
 ```
