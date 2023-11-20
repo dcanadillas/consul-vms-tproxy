@@ -1,0 +1,5 @@
+consul_version = "1.16.3+ent"
+image = "consul-ent"
+sshuser = "packer"
+gcp_project = "hc-3319ff6696b345c6a90eba8d46e"
+image_family = "dcanadillas-consul"
