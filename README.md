@@ -68,6 +68,7 @@ owner = "<owner_nickname>"
 image_family = "custom-consul"
 consul_license = "<your_Consul_Ent_license_string>"
 consul_bootstrap_token = "Consul43v3r"
+enable_cts = false
 EOF
 ```
 

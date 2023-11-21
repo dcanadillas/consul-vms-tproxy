@@ -31,6 +31,10 @@ variable "numclients" {
   description = "number of client nodes"
   default = 2
 }
+variable "enable_cts" {
+  description = "True if a CTS VM is deployed. Default is \"true\""
+  default = true
+}
 variable "cluster_name" {
   description = "Name of the cluster"
 }

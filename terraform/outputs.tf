@@ -1,7 +1,7 @@
 output "consul_load_balancer" {
   value = google_compute_forwarding_rule.global-lb.ip_address
 }
-output "hashicups_load_balancer" {
+output "apps_load_balancer" {
   value = google_compute_forwarding_rule.clients-lb.ip_address
 }
 # output "consul_dns_addr {

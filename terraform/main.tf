@@ -62,7 +62,7 @@ resource "google_compute_firewall" "default" {
 
   allow {
     protocol = "tcp"
-    ports    = ["80","443","8500","8501","8502","8503","22","8300","8301","8400","8302","8600","8443"]
+    ports    = ["80","443","8500","8501","8502","8503","22","8300","8301","8400","8302","8600","8443","9090"]
   }
   allow {
     protocol = "udp"
@@ -106,13 +106,13 @@ resource "google_compute_region_backend_service" "default" {
 resource "google_compute_region_backend_service" "hashicups" {
   name          = "${var.cluster_name}-hashicups"
   health_checks = [
-    google_compute_region_health_check.default.id
+    google_compute_region_health_check.hashicups.id
   ]
   region = var.gcp_region
   protocol = "TCP"
   load_balancing_scheme = "EXTERNAL"
   backend {
-    group  = google_compute_instance_group.hashi_group.id
+    group  = google_compute_instance_group.app_group.id
     # balancing_mode = "CONNECTION"
   }
 }
@@ -125,9 +125,12 @@ resource "google_compute_region_health_check" "default" {
   timeout_sec        = 1
   region = var.gcp_region
 
-  http_health_check {
-    port = "8500"
-    request_path = "/ui"
+  # https_health_check {
+  #   port = "8501"
+  #   request_path = "/"
+  # }
+  tcp_health_check {
+    port = "8501"
   }
 }
 
@@ -138,7 +141,7 @@ resource "google_compute_region_health_check" "hashicups" {
   region = var.gcp_region
 
   http_health_check {
-    port = "80"
+    port = "9090"
     request_path = "/"
   }
 }
@@ -160,7 +163,7 @@ resource "google_compute_forwarding_rule" "clients-lb" {
   backend_service = google_compute_region_backend_service.hashicups.id
   region = var.gcp_region
   ip_protocol = "TCP"
-  ports = ["80","443","8443","8080"]
+  ports = ["80","443","8443","8080","9090"]
 }
 
 

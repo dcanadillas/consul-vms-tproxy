@@ -140,7 +140,7 @@ resource "google_compute_instance_from_template" "vm_clients" {
 }
 
 resource "google_compute_instance_from_template" "vm_cts" {
-  # count = var.numclients
+  count = var.enable_cts ? 1 : 0
   name = "vm-cts-${random_id.server.dec}"
   zone = var.gcp_zone
 
