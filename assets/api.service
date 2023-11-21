@@ -1,0 +1,15 @@
+[Unit]
+Description=API demo service
+After=syslog.target network.target
+
+[Service]
+Environment=MESSAGE="API Response"
+Environment=NAME="API"
+Environment=LISTEN_ADDR="0.0.0.0:9094"
+# Environment="UPSTREAM_URIS="
+ExecStart=/usr/local/bin/fake-service
+ExecStop=/bin/sleep 5
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

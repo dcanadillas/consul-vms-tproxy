@@ -1,0 +1,15 @@
+[Unit]
+Description=Web Service
+After=syslog.target network.target
+
+[Service]
+Environment=MESSAGE="Web Response"
+Environment=NAME="web"
+Environment=LISTEN_ADDR="0.0.0.0:9094"
+Environment=UPSTREAM_URIS="http://fake-api.virtual.consul"
+ExecStart=/usr/local/bin/fake-service
+ExecStop=/bin/sleep 5
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

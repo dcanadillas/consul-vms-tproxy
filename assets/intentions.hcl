@@ -1,8 +1,8 @@
 Kind = "service-intentions"
-Name = "api"
+Name = "fake-api"
 Sources = [
   {
-    Name   = "web"
+    Name   = "fake-web"
     Action = "allow"
   }
 ]

@@ -8,5 +8,6 @@ services:
       NAME: "web"
       SERVER_TYPE: "http"
       HTTP_CLIENT_APPEND_REQUEST: "true"
+      UPSTREAM_URIS: "http://fake-api.virtual.consul"
     ports:
     - "9094:9094"

@@ -21,8 +21,8 @@ output "consul_token" {
 #   value = { for i,j in google_compute_instance_from_template.vm_clients : "gcp-instance-${i}" => j.name }
 # }
 output "gcp_servers" {
-  value = [ for i in google_compute_instance_from_template.vm_server : "gcloud compute ssh consul@${i.name} --zone ${i.zone}"]
+  value = [ for i in google_compute_instance_from_template.vm_server : "gcloud compute ssh hashi@${i.name} --zone ${i.zone}"]
 }
 output "gcp_clients" {
-  value = [ for i in google_compute_instance_from_template.vm_clients : "gcloud compute ssh consul@${i.name} --zone ${i.zone}"]
+  value = [ for i in google_compute_instance_from_template.vm_clients : "gcloud compute ssh hashi@${i.name} --zone ${i.zone}"]
 }
