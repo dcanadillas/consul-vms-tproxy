@@ -85,37 +85,33 @@ Connect to the first client node:
 eval $(terraform output -json gcp_clients | jq -r .[0])
 ```
 
-We create a `docker-compose` file to deploy the application in a docker container:
+We create a `fake-api.service` file to deploy the application ():
 
 ```
-tee docker-compose.yaml <<EOF
-version: "3.7"
-services:
+sudo tee /usr/lib/systemd/system/fake-api.service <<EOF
+[Unit]
+Description=API demo service
+After=syslog.target network.target
 
-  api:
-    image: nicholasjackson/fake-service:v0.7.8
-    environment:
-      LISTEN_ADDR: 0.0.0.0:9094
-      MESSAGE: "API response"
-      NAME: "api"
-      SERVER_TYPE: "http"
-      HTTP_CLIENT_APPEND_REQUEST: "true"
-    ports:
-    - "9094:9094"
-EOF
-```
+[Service]
+Environment=MESSAGE="API Response"
+Environment=NAME="API"
+Environment=LISTEN_ADDR="0.0.0.0:9094"
+ExecStart=/usr/local/bin/fake-service
+ExecStop=/bin/sleep 5
+Restart=always
 
-And we run the application:
-```
-docker-compose up -d
+[Install]
+WantedBy=multi-user.target
 ```
 
-> NOTE: If you want to run Docker commands without root privileges using your user 
+> NOTE: `/usr/local/bin/fake-service` should be already installed by the previous Terraform deployment. If you want to manually download it, you can do it [from here](https://github.com/nicholasjackson/fake-service/releases/tag/v0.26.0).
 
-Check the application is running:
+And reload the services daemon:
 ```
-curl localhost:9094
+sudo systemctl daemon-reload
 ```
+
 
 Let's create a service to be registered in Consul:
 ```
@@ -152,29 +148,50 @@ And register the service:
 consul services register fake-api.hcl -token Consul43v3r
 ```
 
+The service `fake-api` should be already registered in Consul, but nothing is running, so it will be an "unhealthy" service in Consul catalog.
+
+Let's now run the application:
+```
+sudo systemctl start fake-api
+```
+
+Check the application is running:
+```
+curl localhost:9094
+```
+
+Check that the user `envoy` exists (it should be created in the VM creation in Terraform):
+```
+grep envoy /etc/passwd
+```
+
 Now we will use the [`redirect-traffic` command](https://developer.hashicorp.com/consul/commands/connect/redirect-traffic) in Consul to automatically apply the `iptable` rules to enable the Transparent Proxy
  
 ```
- sudo consul connect redirect-traffic -proxy-uid 1234 \
+ sudo consul connect redirect-traffic -proxy-uid $(id --user envoy) \
  -proxy-id fake-api-sidecar-proxy \
  -exclude-uid $(id --user consul) \
- -exclude-uid 0 \
  -exclude-uid $(id --user _apt) \
  -exclude-inbound-port 22 \
  -token Consul43v3r
 ```
 
-In this case we are forcing all the fraffic to go through Envoy, except those executed by `root` or `_apt` users. We do this for demo purposes to not block the node to access internet for some provileged workloads (being able to update with `apt update`, for example). Also, we are excluding the 22 port to be able to access the node through ssh.
+In this case we are forcing all the fraffic to go through Envoy, except those executed by `consul` or `_apt` users. We do this for demo purposes to not block the node to access internet for some provileged workloads (being able to update with `apt update`, for example). Also, we are excluding the 22 port to be able to access the node through ssh.
 
-You can check that the traffic is filtered now by trying to access to an URL without and with root privileges:
+Check that the rules have been applied to `iptables`:
+```
+sudo iptables -L -t nat
+```
+
+You can confirm that the traffic is filtered now by trying to access to an URL without and with root privileges (because Envoy is not still running):
 ```
 curl -L hashicorp.com
-sudo curl -L hashicorp.com
+sudo -u consul curl -L hashicorp.com
 ```
 
 Let's run the envoy to force all the traffic go through it:
 ```
-sudo nohup consul connect envoy -sidecar-for fake-api -token Consul43v3r &
+sudo su envoy -c "nohup consul connect envoy -sidecar-for fake-web -token Consul43v3r > /tmp/envoy.log &"
 ```
 
 ### Client Node 2
@@ -183,27 +200,30 @@ Connect to the second client node:
 eval $(terraform output -json gcp_clients | jq -r .[1])
 ```
 
-We will do the same thing in the second client node, but for a demo app called `web`.
+We will do the same thing in the second client node, but for a demo app called `web` with a service called `fake-web.service`.
 
 ```
-tee docker-compose.yaml <<EOF
-version: "3.7"
-services:
-  web:
-    image: nicholasjackson/fake-service:v0.7.8
-    environment:
-      LISTEN_ADDR: 0.0.0.0:9094
-      MESSAGE: "Web response"
-      NAME: "web"
-      SERVER_TYPE: "http"
-      HTTP_CLIENT_APPEND_REQUEST: "true"
-    ports:
-    - "9094:9094"
-EOF
+sudo tee /usr/lib/systemd/system/fake-web.service <<EOF
+[Unit]
+Description=Web Service
+After=syslog.target network.target
+
+[Service]
+Environment=MESSAGE="Web Response"
+Environment=NAME="web"
+Environment=LISTEN_ADDR="0.0.0.0:9094"
+Environment=UPSTREAM_URIS="fake-api.virtual.consul:9094"
+ExecStart=/usr/local/bin/fake-service
+ExecStop=/bin/sleep 5
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
 ```
 
+And reload the services daemon:
 ```
-docker-compose up -d
+sudo systemctl daemon-reload
 ```
 
 Let's create a service to be registered in Consul:
@@ -238,22 +258,35 @@ EOF
 
 And register the service:
 ```
-consul services register -token Consul43v3r fake-web.hcl 
+consul services register -token Consul43v3r fake-web.hcl
 ```
 
+The service `fake-web` should be already registered in Consul but nothing is running, so it will be an "unhealthy" service in the Consul catalog.
+
+Let's now run the application:
+```
+sudo systemctl start fake-web
+```
+
+Check that the user `envoy` exists (it should be created in the VM creation in Terraform):
+```
+grep envoy /etc/passwd
+```
+
+Now, let's force the traffic to go through the Consul Envoy:
 
 ```
- sudo consul connect redirect-traffic -proxy-uid 1234 \
+ sudo consul connect redirect-traffic -proxy-uid $(id --user envoy) \
  -proxy-id fake-web-sidecar-proxy \
  -exclude-uid $(id --user consul) \
- -exclude-uid 0 \
  -exclude-uid $(id --user _apt) \
  -exclude-inbound-port 22 \
  -token Consul43v3r
 ```
 
+And run the sidecar proxy:
 ```
-sudo nohup consul connect envoy -sidecar-for fake-web -token Consul43v3r &
+sudo su envoy -c "nohup consul connect envoy -sidecar-for fake-web -token Consul43v3r > /tmp/envoy.log &"
 ```
 
 ## Applying Consul intentions to check traffic
@@ -267,7 +300,7 @@ host fake-api.service.consul
 host fake-api.virtual.consul
 ```
 
-We can check that API service is not accessible:
+But we can confirm that API service is not accessible:
 ```
 curl fake-api.virtual.consul
 ```
@@ -287,4 +320,131 @@ Sources = [
   }
 ]
 EOF
+```
+
+Now we can check that the `fake-api` service is accessible from `fake-web` node:
+```
+curl fake-api.virtual.consul
+```
+
+From the application we can see that `fake-web` is able to reach `fake-api`:
+```
+$ curl localhost:9094
+{
+  "name": "web",
+  "uri": "/",
+  "type": "HTTP",
+  "ip_addresses": [
+    "10.2.0.8",
+    "172.17.0.1"
+  ],
+  "start_time": "2023-11-22T13:58:06.574258",
+  "end_time": "2023-11-22T13:58:06.575790",
+  "duration": "1.532063ms",
+  "body": "Web Response",
+  "upstream_calls": {
+    "fake-api.virtual.consul:9094": {
+      "name": "API",
+      "uri": "fake-api.virtual.consul:9094",
+      "type": "gRPC",
+      "ip_addresses": [
+        "10.2.0.10",
+        "172.17.0.1"
+      ],
+      "start_time": "2023-11-22T13:58:06.575246",
+      "end_time": "2023-11-22T13:58:06.575340",
+      "duration": "94.337µs",
+      "headers": {
+        "content-type": "application/grpc"
+      },
+      "body": "API Response",
+      "code": 0
+    }
+  },
+  "code": 200
+}
+```
+
+## Using an API Gateway to accesso our application from outside the mesh
+
+Let's deploy a new client node where our [API Gateway](https://developer.hashicorp.com/consul/docs/connect/gateways/api-gateway) will run. We do this by changing in the Terraform values `numclients = 3`. And we apply the new Terraform (this is done in the `terraform/` directory from our repo):
+```
+terraform apply -var numclients=3 
+```
+
+Once the Terraform has benn successfuly applied, let's connect to the new VM:
+```
+eval $(terraform output -json gcp_clients | jq -r .[2])
+```
+
+Within the GCP VM terminal, let's create our [API Gateway configuration entry](https://developer.hashicorp.com/consul/docs/connect/config-entries/api-gateway):
+```
+tee api-gateway.hcl <<EOF
+Kind = "api-gateway"
+Name = "api-gateway"
+
+Listeners = [
+    {
+        Port = 9090
+        Name = "gw-tcp-listener"
+        Protocol = "tcp"
+    }
+]
+EOF
+```
+
+And now a [TCP route](https://developer.hashicorp.com/consul/docs/connect/config-entries/tcp-route) that will tell our API listener to route traffic to the `fake-web` service:
+```
+tee tcp-route.hcl << EOF
+Kind = "tcp-route"
+Name = "tcp-route"
+
+// Rules define how requests will be routed
+Services = [
+  {
+    Name = "fake-web"
+  }
+]
+Parents = [
+  {
+    Kind = "api-gateway"
+    Name = "api-gateway"
+    SectionName = "gw-tcp-listener"
+  }
+]
+EOF
+```
+
+Let's apply our configurations:
+```
+consul config write -token Consul43v3r api-gateway.hcl
+consul config write -token Consul43v3r tcp-route.hcl
+```
+
+Now, we need to run the gateway in the node:
+```
+consul connect envoy -gateway api -register -service api-gateway -token Consul43v3r &
+```
+
+And last, but not least, we need to authorize the traffic with the corresponding Consul intention:
+```
+tee fake-web-intentions.hcl << EOF
+Kind = "service-intentions"
+Name = "fake-web"
+Sources = [
+  {
+    Name   = "api-gateway"
+    Action = "allow"
+  }
+]
+EOF
+```
+
+```
+consul config write -token Consul43v3r fake-web-intentions.hcl
+```
+
+You should be able to connect to our application from the outside:
+```
+curl http://$(terraform output --raw apps_load_balancer):9090
 ```

@@ -103,10 +103,10 @@ resource "google_compute_region_backend_service" "default" {
   }
 }
 
-resource "google_compute_region_backend_service" "hashicups" {
-  name          = "${var.cluster_name}-hashicups"
+resource "google_compute_region_backend_service" "apps" {
+  name          = "${var.cluster_name}-apps"
   health_checks = [
-    google_compute_region_health_check.hashicups.id
+    google_compute_region_health_check.apps.id
   ]
   region = var.gcp_region
   protocol = "TCP"
@@ -134,16 +134,19 @@ resource "google_compute_region_health_check" "default" {
   }
 }
 
-resource "google_compute_region_health_check" "hashicups" {
-  name = "health-check-hashicups"
-  check_interval_sec = 1
+resource "google_compute_region_health_check" "apps" {
+  name = "health-check-apps"
+  check_interval_sec = 5
   timeout_sec        = 1
   region = var.gcp_region
 
   http_health_check {
     port = "9090"
-    request_path = "/"
+    request_path = "/health"
   }
+  # tcp_health_check {
+  #   port = "9090"
+  # }
 }
 
 resource "google_compute_forwarding_rule" "global-lb" {
@@ -160,14 +163,11 @@ resource "google_compute_forwarding_rule" "global-lb" {
 resource "google_compute_forwarding_rule" "clients-lb" {
   name       = "clients-lb"
   #  ip_address = google_compute_address.global-ip.address
-  backend_service = google_compute_region_backend_service.hashicups.id
+  backend_service = google_compute_region_backend_service.apps.id
   region = var.gcp_region
   ip_protocol = "TCP"
   ports = ["80","443","8443","8080","9090"]
 }
-
-
-
 
 
 data "google_compute_image" "my_image" {
