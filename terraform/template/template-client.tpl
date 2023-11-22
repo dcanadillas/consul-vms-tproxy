@@ -32,7 +32,7 @@ unzip envoy.zip
 chmod 755 envoy
 sudo mv envoy /usr/local/bin
 
-# sudo useradd envoy
+sudo useradd envoy
 
 
 # Download Fake Service demoapp in case we want
