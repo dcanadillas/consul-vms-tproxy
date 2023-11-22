@@ -147,6 +147,7 @@ ports {
  # grpc_tls = 8503
 }
 
+disable_remote_exec = false
 
 EOF
 
