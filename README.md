@@ -8,6 +8,14 @@
 * `jq` command installed in your terminal (it is )
 * gcloud CLI
 
+## Context
+
+This repo has all configuration assets to deploy Consul in GCP VMs to build an environment like in the following diagram:
+
+![Consul VMs GCP](docs/Consul-APIGW-FakeService.png)
+
+Following this "readme" you will finally deploy the architecture where you can enforce traffic routing and authorization using [Consul Service Mesh](https://developer.hashicorp.com/consul/docs/connect) and [Transparent Proxy](https://developer.hashicorp.com/consul/docs/k8s/connect/transparent-proxy). And you will configure this for a VMs environment,  for a non containerized scenario.
+
 ## Configure your GCP environment
 Configure your GCP creds:
 ```
@@ -365,7 +373,7 @@ $ curl localhost:9094
 }
 ```
 
-## Using an API Gateway to accesso our application from outside the mesh
+## Using an API Gateway to access the mesh
 
 Let's deploy a new client node where our [API Gateway](https://developer.hashicorp.com/consul/docs/connect/gateways/api-gateway) will run. We do this by changing in the Terraform values `numclients = 3`. And we apply the new Terraform (this is done in the `terraform/` directory from our repo):
 ```
