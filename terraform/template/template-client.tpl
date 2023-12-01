@@ -34,6 +34,35 @@ sudo mv envoy /usr/local/bin
 
 sudo useradd envoy
 
+sudo mkdir -p etc/envoy.d/sidecar_config
+
+sudo tee /etc/systemd/system/envoy@.service << EOF
+[Unit]
+Description=Consul service mesh Envoy proxy for service %i
+After=network.target consul.service
+Requires=consul.service
+
+AssertPathExists=/etc/envoy.d/sidecar_config
+AssertPathIsDirectory=/etc/envoy.d/sidecar_config
+AssertFileNotEmpty=/etc/envoy.d/sidecar_config/%i.env
+
+[Service]
+Type=simple
+User=envoy
+Group=envoy
+ExecStart=consul connect envoy -sidecar-for=%i
+EnvironmentFile=/etc/envoy.d/sidecar_config/%i.env
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo chown -R envoy:envoy /etc/envoy
+
+
+
 
 # Download Fake Service demoapp in case we want
 curl -L https://github.com/nicholasjackson/fake-service/releases/download/v0.26.0/fake_service_linux_amd64.zip -o fake-service.zip

@@ -93,6 +93,11 @@ Connect to the first client node:
 eval $(terraform output -json gcp_clients | jq -r .[0])
 ```
 
+Use a Consul token in an env variable for following steps:
+```
+export CONSUL_HTTP_TOKEN="Consul43v3r"
+```
+
 We create a `fake-api.service` file to deploy the application ():
 
 ```
@@ -111,6 +116,7 @@ Restart=always
 
 [Install]
 WantedBy=multi-user.target
+EOF
 ```
 
 > NOTE: `/usr/local/bin/fake-service` should be already installed by the previous Terraform deployment. If you want to manually download it, you can do it [from here](https://github.com/nicholasjackson/fake-service/releases/tag/v0.26.0).
@@ -153,7 +159,7 @@ EOF
 
 And register the service:
 ```
-consul services register fake-api.hcl -token Consul43v3r
+consul services register -token Consul43v3r fake-api.hcl
 ```
 
 The service `fake-api` should be already registered in Consul, but nothing is running, so it will be an "unhealthy" service in Consul catalog.
@@ -197,7 +203,17 @@ curl -L hashicorp.com
 sudo -u consul curl -L hashicorp.com
 ```
 
-Let's run the envoy to force all the traffic go through it:
+Before running the Envoy proxy, let's create a `service identity` ACL token for the Envoy:
+```
+echo "CONSUL_HTTP_TOKEN=$(consul acl token create -format json -service-identity fake-api -token Consul43v3r | jq -r .SecretID)" | sudo tee /etc/envoy.d/sidecar_config/fake-api.env
+```
+
+Now let's run the envoy to force all the traffic go through it:
+```
+sudo systemctl start envoy@fake-api.service
+```
+
+> NOTE: You could run manualy the proxy with the following command
 ```
 sudo su envoy -c "nohup consul connect envoy -sidecar-for fake-web -token Consul43v3r > /tmp/envoy.log &"
 ```
@@ -206,6 +222,11 @@ sudo su envoy -c "nohup consul connect envoy -sidecar-for fake-web -token Consul
 Connect to the second client node:
 ```
 eval $(terraform output -json gcp_clients | jq -r .[1])
+```
+
+Use a Consul token in an env variable for following steps:
+```
+export CONSUL_HTTP_TOKEN="Consul43v3r"
 ```
 
 We will do the same thing in the second client node, but for a demo app called `web` with a service called `fake-web.service`.
@@ -221,12 +242,14 @@ Environment=MESSAGE="Web Response"
 Environment=NAME="web"
 Environment=LISTEN_ADDR="0.0.0.0:9094"
 Environment=UPSTREAM_URIS="fake-api.virtual.consul:9094"
+Environment=HTTP_CLIENT_REQUEST_TIMEOUT="5s"
 ExecStart=/usr/local/bin/fake-service
 ExecStop=/bin/sleep 5
 Restart=always
 
 [Install]
 WantedBy=multi-user.target
+EOF
 ```
 
 And reload the services daemon:
@@ -266,7 +289,7 @@ EOF
 
 And register the service:
 ```
-consul services register -token Consul43v3r fake-web.hcl
+consul services register -token $CONSUL_HTTP_TOKEN fake-web.hcl
 ```
 
 The service `fake-web` should be already registered in Consul but nothing is running, so it will be an "unhealthy" service in the Consul catalog.
@@ -289,10 +312,20 @@ Now, let's force the traffic to go through the Consul Envoy:
  -exclude-uid $(id --user consul) \
  -exclude-uid $(id --user _apt) \
  -exclude-inbound-port 22 \
- -token Consul43v3r
+ -token $CONSUL_HTTP_TOKEN
+```
+
+Before running the Envoy proxy, lcreate the `service identity` ACL token:
+```
+echo "CONSUL_HTTP_TOKEN=$(consul acl token create -format json -service-identity fake-web -token $CONSUL_HTTP_TOKEN | jq -r .SecretID)" | sudo tee /etc/envoy.d/sidecar_config/fake-web.env
 ```
 
 And run the sidecar proxy:
+```
+sudo systemctl start envoy@fake-web.service
+```
+
+
 ```
 sudo su envoy -c "nohup consul connect envoy -sidecar-for fake-web -token Consul43v3r > /tmp/envoy.log &"
 ```
@@ -317,7 +350,7 @@ That is because Consul has a `deny all` policy by default, so services cannot be
 
 Let's then create the authorization `fake-web --> fake-api` by creating the corresponding Consul intention:
 ```
-consul config write -token Consul43v3r - <<EOF
+consul config write -token $CONSUL_HTTP_TOKEN - <<EOF
 Kind = "service-intentions"
 Name = "fake-api"
 Sources = [
