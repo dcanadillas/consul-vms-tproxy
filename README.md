@@ -208,15 +208,22 @@ Before running the Envoy proxy, let's create a `service identity` ACL token for 
 echo "CONSUL_HTTP_TOKEN=$(consul acl token create -format json -service-identity fake-api -token Consul43v3r | jq -r .SecretID)" | sudo tee /etc/envoy.d/sidecar_config/fake-api.env
 ```
 
+You can check that the token has been created in Consul:
+```
+consul acl token list -format json -token Consul43v3r | jq '.[] | select(.ServiceIdentities[0].ServiceName == "fake-api")'
+```
+
+> NOTE: If you exported the `CONSUL_HTTP_TOKEN` variable witht the bootstrap token at the beginning you can remove the `-token` parameter from the commands
+
 Now let's run the envoy to force all the traffic go through it:
 ```
 sudo systemctl start envoy@fake-api.service
 ```
 
 > NOTE: You could run manualy the proxy with the following command
-```
-sudo su envoy -c "nohup consul connect envoy -sidecar-for fake-web -token Consul43v3r > /tmp/envoy.log &"
-```
+> ```
+> sudo su envoy -c "nohup consul connect envoy -sidecar-for fake-web -token Consul43v3r > /tmp/envoy.log &"
+> ```
 
 ### Client Node 2
 Connect to the second client node:
@@ -241,7 +248,7 @@ After=syslog.target network.target
 Environment=MESSAGE="Web Response"
 Environment=NAME="web"
 Environment=LISTEN_ADDR="0.0.0.0:9094"
-Environment=UPSTREAM_URIS="fake-api.virtual.consul:9094"
+Environment=UPSTREAM_URIS="http://fake-api.virtual.consul:9094"
 Environment=HTTP_CLIENT_REQUEST_TIMEOUT="5s"
 ExecStart=/usr/local/bin/fake-service
 ExecStop=/bin/sleep 5
@@ -292,6 +299,8 @@ And register the service:
 consul services register -token $CONSUL_HTTP_TOKEN fake-web.hcl
 ```
 
+> NOTE: It is not necessary to use `-token $CONSUL_HTTP_TOKEN` if the environment variable is defined, but you can anyway force putting it.
+
 The service `fake-web` should be already registered in Consul but nothing is running, so it will be an "unhealthy" service in the Consul catalog.
 
 Let's now run the application:
@@ -320,14 +329,14 @@ Before running the Envoy proxy, lcreate the `service identity` ACL token:
 echo "CONSUL_HTTP_TOKEN=$(consul acl token create -format json -service-identity fake-web -token $CONSUL_HTTP_TOKEN | jq -r .SecretID)" | sudo tee /etc/envoy.d/sidecar_config/fake-web.env
 ```
 
+Chek again that the token for `fake-web` has been created in Consul:
+```
+consul acl token list -format json -token $CONSUL_HTTP_TOKEN | jq '.[] | select(.ServiceIdentities[0].ServiceName == "fake-web")'
+```
+
 And run the sidecar proxy:
 ```
 sudo systemctl start envoy@fake-web.service
-```
-
-
-```
-sudo su envoy -c "nohup consul connect envoy -sidecar-for fake-web -token Consul43v3r > /tmp/envoy.log &"
 ```
 
 ## Applying Consul intentions to check traffic
@@ -338,7 +347,7 @@ Using Consul DNS, the `fake-api` service is discoverable:
 ```
 host fake-api.service.consul
 
-host fake-api.virtual.consul
+host fake-web.virtual.consul
 ```
 
 But we can confirm that API service is not accessible:
@@ -386,7 +395,7 @@ $ curl localhost:9094
   "upstream_calls": {
     "fake-api.virtual.consul:9094": {
       "name": "API",
-      "uri": "fake-api.virtual.consul:9094",
+      "uri": "http://fake-api.virtual.consul:9094",
       "type": "gRPC",
       "ip_addresses": [
         "10.2.0.10",
